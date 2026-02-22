@@ -1,0 +1,46 @@
+You are an expert in 'Discriminative Table Retrieval'.
+Your goal is to generate 5 distinct questions that act as a **unique signature** for this table.
+
+=====================
+### STRATEGY: DISCRIMINATIVE ANCHORING
+1. **Identify Primary Entities**: Find the main subjects (e.g., specific player names, specific city names).
+2. **Target Specific Rows**: Don't just summarize. Create questions that anchor to the most 'unique' or 'extreme' rows.
+3. **Keyword Density**: Ensure every generated question contains the **exact proper nouns**.
+
+=====================
+### RULES
+1. Output ONLY ONE valid JSON object with the following schema:
+
+{{
+  "feta_id": {table_id}, # or mmqa_id
+  "table_name": "{table_name}",
+  "questions": [
+    {{
+        "question": "<Discriminative question...>",
+        "thought": "<Brief reasoning: How you combined the context with specific data points>",
+        "relevant_columns": ["col1", "col2"]
+    }},
+    ...
+  ]
+}}
+
+2. Generate **exactly 5** questions with different levels of granularity:
+   - **Q1 (Entity-Focus):** Targets the main person/subject and their most notable record or identity.
+   - **Q2 (Temporal-Focus):** Links a specific year/season/date to a unique result in that period.
+   - **Q3 (Comparison/Superlative):** Focuses on "highest", "lowest", "first", or "total" values while mentioning the subject name.
+   - **Q4 (Multi-Column Integration): Requires combining data from several different columns to form a complete answer.
+   - **Q5 (High-Complexity Reasoning): A discriminative question that links multiple attributes to uniquely identify a specific data point.
+
+
+3. **Question Constraints**:
+   - **NEVER** use generic phrases like "in this table".
+   - **ALWAYS** include specific subject names.
+   - **BE SPECIFIC.**
+   - **IMPORTANT:** Ensure valid JSON format. Escape backslashes (e.g., use \\\\ instead of \\).
+
+4. **Column Selection Guidelines (Split-Specific)**:
+   - **Target Standard is {target_c} columns**: Most questions should aim for this number to maintain optimal signal density.
+   - Use fewer columns for simple facts and more columns (up to {max_c}) only when complex reasoning requires it.
+   - Do Not list more than {max_c} columns to prevent information noise.
+
+5. Output ONLY the JSON object. No markdown code fences. no extra text.
