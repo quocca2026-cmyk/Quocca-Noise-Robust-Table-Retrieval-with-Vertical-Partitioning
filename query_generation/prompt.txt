@@ -12,7 +12,7 @@ Your goal is to generate 5 distinct questions that act as a **unique signature**
 1. Output ONLY ONE valid JSON object with the following schema:
 
 {{
-  "feta_id": {table_id}, # or mmqa_id
+  "feta_id": {table_id},
   "table_name": "{table_name}",
   "questions": [
     {{

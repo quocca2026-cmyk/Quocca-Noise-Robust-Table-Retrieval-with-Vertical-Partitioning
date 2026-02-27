@@ -205,7 +205,7 @@ if __name__ == "__main__":
     }
     
     for split in ["train", "dev", "test"]: 
-        cur_input = f"Quocca/dataset/FeTaQA/{split}.jsonl" 
+        cur_input = f"Quocca/dataset/FeTaQA/{split}_clean.jsonl" 
         cur_output = f"/{split}_qwen.jsonl" 
         
         if os.path.exists(cur_input):
