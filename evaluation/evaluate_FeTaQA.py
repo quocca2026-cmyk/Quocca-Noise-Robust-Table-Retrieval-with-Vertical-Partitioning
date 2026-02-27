@@ -129,31 +129,27 @@ def load_all_queries_and_gold(base_dir, splits=["test", "dev", "train"]):
 def load_corpus_from_files(file_paths, is_subset=False, row_limit=5):
     markdowns, ids = [], []
     for fp in file_paths:
-        if not os.path.exists(fp): 
-            continue
+        if not os.path.exists(fp): continue
         with open(fp, 'r', encoding='utf-8') as f:
             for line in f:
                 try:
                     d = json.loads(line)
                     f_id = str(d.get('feta_id'))
+                
+                    t_arr = d.get('input', {}).get('table_array') or d.get('table_array')
+                    t_cols = d.get('table_columns')
+                    t_cont = d.get('table_content')
+                    if not t_cols and t_arr: t_cols, t_cont = t_arr[0], t_arr[1:]
+                    
+                    md = create_markdown(t_cols, t_cont, row_limit=row_limit)
+
                     if is_subset:
-                        t_arr = d.get('input', {}).get('table_array') or d.get('table_array')
                         anchor = d.get('input', {}).get('question') or d.get('question')
-                        if t_arr:
-                            md = create_markdown(t_arr[0], t_arr[1:], row_limit=row_limit)
-                            if anchor: md = f"Question: {anchor}\nTable Content:\n{md}"
-                            markdowns.append(md)
-                            ids.append(f_id)
-                    else:
-                        t_cols = d.get('table_columns')
-                        t_cont = d.get('table_content')
-                        if not t_cols:
-                             t_arr = d.get('input', {}).get('table_array') or d.get('table_array')
-                             if t_arr: t_cols, t_cont = t_arr[0], t_arr[1:]
-                        if t_cols:
-                            md = create_markdown(t_cols, t_cont, row_limit=row_limit)
-                            markdowns.append(md)
-                            ids.append(f_id)
+                        if anchor:
+                            md = f"Question: {anchor}\nTable Content:\n{md}"
+                    
+                    markdowns.append(md)
+                    ids.append(f_id)
                 except: continue
     return markdowns, ids
 
