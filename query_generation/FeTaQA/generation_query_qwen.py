@@ -5,6 +5,7 @@ from typing import Dict, List, Any
 from vllm import LLM, SamplingParams
 from vllm.lora.request import LoRARequest
 from tqdm import tqdm
+from transformers import AutoTokenizer
 
 # CUDA memory optimization
 os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
@@ -13,8 +14,10 @@ os.environ["OBJC_DISABLE_INITIALIZE_FORK_SAFETY"] = "YES"
 
 class TableQuestionGeneratorVLLM:
     def __init__(self, model_path: str, lora_path: str = None, tensor_parallel_size=2,
-                 gpu_memory_utilization=0.9, max_model_len=2048):
+                 gpu_memory_utilization=0.9, max_model_len=4096):
         print(f"[Info] Loading Base Model from: {model_path}")
+        
+        self.tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
         self.lora_path = lora_path
         
         self.llm = LLM(
@@ -36,7 +39,7 @@ class TableQuestionGeneratorVLLM:
         self.sampling_params = SamplingParams(
             temperature=0.7,
             top_p=0.95,
-            max_tokens=4096,
+            max_tokens=2048,
             stop=["<|im_end|>", "<|endoftext|>"]
         )
 
@@ -46,7 +49,7 @@ class TableQuestionGeneratorVLLM:
         table_str = f"### [TABLE: {table_name}]\n"
         table_str += f"- Columns: {', '.join(columns)}\n"
         table_str += "- Key Data Rows:\n"
-        for row in content[:10]:
+        for row in content[:30]:
             table_str += f"  * {row}\n"
         return table_str
 
@@ -102,7 +105,16 @@ Your goal is to generate 5 distinct questions that act as a **unique signature**
 5. Output ONLY the JSON object. No markdown code fences, no extra text.
 """
         user_prompt = f"### INPUT TABLE DATA\n{table_str}\n\nGenerate the JSON object with 5 discriminative questions as specified."
-        return f"<|im_start|>system\n{system_prompt}<|im_end|>\n<|im_start|>user\n{user_prompt}<|im_end|>\n<|im_start|>assistant\n"
+        full_prompt = f"<|im_start|>system\n{system_prompt}<|im_end|>\n<|im_start|>user\n{user_prompt}<|im_end|>\n<|im_start|>assistant\n"
+        
+        # 2048 token truncation
+        tokens = self.tokenizer.encode(full_prompt)
+        if len(tokens) > 2048:
+            full_prompt = self.tokenizer.decode(tokens[:2048], skip_special_tokens=False)
+            if not full_prompt.endswith("<|im_start|>assistant\n"):
+                if "<|im_start|>assistant\n" not in full_prompt[-25:]:
+                    full_prompt += "\n<|im_start|>assistant\n"
+        return full_prompt
 
     # Parser LLM output and handles common JSON formatting errors
     def parse_and_flatten_json(self, raw_text: str) -> List[Dict]:
@@ -127,14 +139,8 @@ Your goal is to generate 5 distinct questions that act as a **unique signature**
 
             try:
                 data = json.loads(json_str, strict=False)
-            except json.JSONDecodeError:
-                try:
-                    json_str_eval = json_str.replace("null", "None").replace("false", "False").replace("true", "True")
-                    data = eval(json_str_eval)
-                except:
-                    print(f"[Error] Parsing Failed completely: {raw_text[:50]}...") 
-                    return []
-            
+            except:
+                return []
             
             f_id = data.get("feta_id")
             questions = data.get("questions", [])
@@ -146,13 +152,12 @@ Your goal is to generate 5 distinct questions that act as a **unique signature**
                         flattened.append({
                             "feta_id": f_id,
                             "question": q_item.get("question"),
-                            "thought": q_item.get("thought"),  # LoRA script
+                            "thought": q_item.get("thought"),
                             "relevant_columns": q_item.get("relevant_columns")
                         })
             return flattened
 
-        except Exception as e:
-            print(f"[Error] Error during parsing: {e}") 
+        except Exception:
             return []
 
     def run_research_pipeline(self, input_path: str, output_path: str, split_config: dict, batch_size: int = 16):
@@ -171,10 +176,9 @@ Your goal is to generate 5 distinct questions that act as a **unique signature**
                 t_str = self.format_table_for_prompt(t_name, t_cols, content)
                 prompts.append(self.create_prompt(t_str, t_id, t_name, split_config))
 
-        print(f"[Process] Generating {len(prompts)} tables (Flat JSONL output)...")
+        print(f"[Process] Generating {len(prompts)} tables...")
         
-        # Define LoRA request
-        lora_req = LoRARequest("table_adapter", 1, self.lora_path) if self.lora_path else None
+        lora_req = LoRARequest(lora_name="table_adapter", lora_int_id=1, lora_path=self.lora_path) if self.lora_path else None
 
         with open(output_path, "w", encoding="utf-8") as out_f:
             for batch_idx in tqdm(range(0, len(prompts), batch_size)):
@@ -189,22 +193,22 @@ Your goal is to generate 5 distinct questions that act as a **unique signature**
 
 # --- Execution ---
 if __name__ == "__main__":
-    BASE_MODEL = "Qwen2.5-7B-Instruct" # Please update to your actual relative path
+    BASE_MODEL = "Qwen2.5-7B-Instruct" 
     LORA_PATH = "Quocca/model/checkpoint-7600"
     generator = TableQuestionGeneratorVLLM(model_path=BASE_MODEL, lora_path=LORA_PATH, tensor_parallel_size=2)
 
-    # Split settings
+    # Methodology-specific hyperparameters (max, target): 7/3
     split_settings = {
         "train": {"max": None, "target":  None},
         "dev":   {"max": None, "target":  None},
         "test":  {"max": None, "target":  None}
     }
     
-    # Iterate over splits
     for split in ["train", "dev", "test"]: 
-        cur_input = f"Quocca/dataset/FeTaQA/{split}.jsonl" # Please update to your actual relative path 
-        cur_output = f"/{split}_qwen.jsonl" # Please update to your actual relative path
+        cur_input = f"Quocca/dataset/FeTaQA/{split}.jsonl" 
+        cur_output = f"/{split}_qwen.jsonl" 
         
-        print(f"[Process] Processing {split} split -> {cur_output}")
-        config = split_settings[split]
-        generator.run_research_pipeline(cur_input, cur_output, split_config=config, batch_size=16)
+        if os.path.exists(cur_input):
+            print(f"[Process] Processing {split} split -> {cur_output}")
+            config = split_settings[split]
+            generator.run_research_pipeline(cur_input, cur_output, split_config=config, batch_size=16)
